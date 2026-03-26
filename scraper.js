@@ -28,7 +28,7 @@
              let precoText = el.first().text().trim().replace('R$', '').replace(/[^\d.,]/g, '');
              precoText = precoText.replace(',', '.');
              const preco = parseFloat(precoText);
-             if (!isNaN(preco) && preco > 0 && preco < 20) {
+             if (!isNaN(preco) && preco > 0 && preco &lt; 20) {
                precos.push({ cidade: cidade.nome, combustivel, preco, source_date: new Date().toISOString(), source: 'precodahora-scraper' });
              }
            }
