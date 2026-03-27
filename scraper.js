@@ -1,42 +1,78 @@
+
 const axios = require('axios');
-const cheerio = require('cheerio');
 
 const API_TOKEN = process.env.PETROS_API_TOKEN;
 const EDGE_URL = 'https://gfeqhiqqmbyadskyvnqo.supabase.co/functions/v1/precodahora-scraper-receiver';
 
-const cidades = [
-  { nome: 'Eunápolis', lat: -15.7942, lng: -39.6087 },
-  { nome: 'Itabela', lat: -15.1667, lng: -39.2833 }
+const combustiveis = [
+  'gasolina aditivada',
+  'etanol',
+  'diesel s10',
+  'diesel s500'
 ];
 
-const combustiveis = ['Gasolina Comum', 'Gasolina Aditivada', 'Etanol', 'Diesel S10', 'Diesel S500'];
+
+// Coordenadas aproximadas do centro de Eunápolis e Itabela
+const cidades = [
+  {
+    nome: 'Eunápolis',
+    latitude: -16.3719674,
+    longitude: -39.5824893
+  },
+  {
+    nome: 'Itabela',
+    latitude: -16.5732,
+    longitude: -39.5596
+  }
+];
 
 async function scrapePrecoDaHora() {
   console.log('[Scraper] ========== INICIANDO SCRAPE ==========');
   const precos = [];
   for (const cidade of cidades) {
-    const urlC = cidade.nome.toLowerCase().replace(/ /g, '-');
-    try {
-      const { data } = await axios.get(`https://precodahora.com.br/ba/${urlC}`, {
-        timeout: 10000,
-        httpsAgent: new (require('https').Agent)({ rejectUnauthorized: false })
-      });
-      const $ = cheerio.load(data);
-      for (const combustivel of combustiveis) {
-        const sel = `[data-combustivel="${combustivel.toLowerCase().replace(/ /g, '-')}"] .preco, .preco-${combustivel.toLowerCase().replace(/ /g, '-')} , [title*="${combustivel}"] .preco`;
-        const el = $(sel);
-        if (el.length) {
-          let precoText = el.first().text().trim().replace('R$', '').replace(/[^\d.,]/g, '');
-          precoText = precoText.replace(',', '.');
-          const preco = parseFloat(precoText);
-          if (!isNaN(preco) && preco > 0 && preco < 20) {
-            precos.push({ cidade: cidade.nome, combustivel, preco, source_date: new Date().toISOString(), source: 'precodahora-scraper' });
+    for (const combustivel of combustiveis) {
+      try {
+        const payload = {
+          termo: combustivel,
+          latitude: cidade.latitude,
+          longitude: cidade.longitude,
+          raio: 15,
+          pagina: 1,
+          ordenar: 'preco.asc',
+          horas: 72
+        };
+        const { data } = await axios.post(
+          'https://precodahora.ba.gov.br/produtos/',
+          new URLSearchParams(payload),
+          {
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+              'x-requested-with': 'XMLHttpRequest'
+            },
+            timeout: 10000
           }
+        );
+        if (data && Array.isArray(data.resultado)) {
+          for (const item of data.resultado) {
+            const prod = item.produto;
+            const estab = item.estabelecimento;
+            precos.push({
+              cidade: cidade.nome,
+              combustivel: prod.descricao,
+              preco: prod.precoUnitario,
+              posto: estab.nomeEstabelecimento,
+              endereco: `${estab.endLogradouro}, ${estab.endNumero} - ${estab.bairro}`,
+              data: prod.data,
+              source: 'precodahora.ba.gov.br'
+            });
+          }
+          console.log(`[Scraper] ${cidade.nome} - ${combustivel}: ${data.resultado.length} preços`);
+        } else {
+          console.log(`[Scraper] ${cidade.nome} - ${combustivel}: Nenhum resultado encontrado.`);
         }
+      } catch (e) {
+        console.log(`[Scraper] Erro ${cidade.nome} - ${combustivel}:`, e.message);
       }
-      console.log(`[Scraper] ${cidade.nome}: ${precos.filter(p => p.cidade === cidade.nome).length} preços`);
-    } catch (e) {
-      console.log(`[Scraper] Erro ${cidade.nome}:`, e.message);
     }
   }
   console.log(`[Scraper] Total scraped ${precos.length} preços`);
